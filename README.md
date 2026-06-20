@@ -89,7 +89,7 @@ Os arquivos da GLAD devem ser baixados manualmente:
 
 | Modelo | Procedencia | Licenca |
 |--------|-------------|---------|
-| Suzanne | Blender (开源) | CC-BY |
+| Suzanne | Blender (open source) | CC-BY |
 | Cube | Gerado proceduralmente | - |
 
 ### Texturas
