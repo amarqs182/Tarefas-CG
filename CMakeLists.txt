@@ -53,25 +53,17 @@ include_directories(${imgui_SOURCE_DIR})
 include_directories(${imgui_SOURCE_DIR}/backends)
 
 
-# Lista de exemplos/exercícios podem ser colocados aqui também
+# Apenas os exercicios usados atualmente.
+# Removidos em cleanup/codigo-morto:
+#   Hello3D, Hello3DCamera, TriangleTex, SpherePhong, CuboIluminacao, TrajectoryDemo
+# sao copias identicas do CGCCHibrido do professor - nao utilizados.
 set(EXERCISES
-    Hello3D
-    Hello3DCamera
-    TriangleTex
-    SpherePhong
-    CuboIluminacao
-    TrajectoryDemo
     MainDiorama
 )
 
-# Arquivos adicionais necessários para a TrajectoryDemo
-set(TRAJECTORY_SRC
-    src/Trajectory.cpp
-)
-
 # Arquivos adicionais necessários para o MainDiorama
+# (Trajectory.cpp sera adicionado na Fase 3 — refactor)
 set(MAINDIORAMA_SRC
-    src/SceneParser.cpp
 )
 
 add_compile_options(-Wno-pragmas)
@@ -96,28 +88,21 @@ if (NOT EXISTS ${GLAD_C_FILE})
 endif()
 
 # Cria os executáveis
+# Após cleanup/codigo-morto, so MainDiorama sobreviveu no EXERCISES.
+# Os branches TrajectoryDemo/Hello3DCamera foram removidos porque os arquivos
+# correspondentes foram deletados Tambem. O else() abaixo nao sera executado.
 foreach(EXERCISE ${EXERCISES})
-    if(${EXERCISE} STREQUAL "TrajectoryDemo")
-        # TrajectoryDemo precisa do arquivo Trajectory.cpp e Camera.cpp
-        add_executable(${EXERCISE} src/${EXERCISE}.cpp src/Trajectory.cpp src/Camera.cpp ${GLAD_C_FILE})
-    elseif(${EXERCISE} STREQUAL "Hello3DCamera")
-        # Hello3DCamera precisa do arquivo Camera.cpp
-        add_executable(${EXERCISE} src/${EXERCISE}.cpp src/Camera.cpp ${GLAD_C_FILE})
-    elseif(${EXERCISE} STREQUAL "MainDiorama")
-        # MainDiorama usa Camera.cpp, ObjParser.cpp e ImGui
-        set(IMGUI_SOURCES
-            ${imgui_SOURCE_DIR}/imgui.cpp
-            ${imgui_SOURCE_DIR}/imgui_draw.cpp
-            ${imgui_SOURCE_DIR}/imgui_tables.cpp
-            ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-            ${imgui_SOURCE_DIR}/imgui_demo.cpp
-            ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-            ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
-        )
-        add_executable(${EXERCISE} src/${EXERCISE}.cpp src/Camera.cpp src/ObjParser.cpp ${IMGUI_SOURCES} ${GLAD_C_FILE})
-    else()
-        add_executable(${EXERCISE} src/${EXERCISE}.cpp ${GLAD_C_FILE})
-    endif()
+    # MainDiorama usa Camera.cpp, ObjParser.cpp e ImGui
+    set(IMGUI_SOURCES
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/imgui_demo.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    )
+    add_executable(${EXERCISE} src/${EXERCISE}.cpp src/Camera.cpp src/ObjParser.cpp ${IMGUI_SOURCES} ${GLAD_C_FILE})
     target_include_directories(${EXERCISE} PRIVATE ${CMAKE_SOURCE_DIR}/include/glad ${glm_SOURCE_DIR} ${stb_image_SOURCE_DIR})
     target_link_libraries(${EXERCISE} glfw ${OPENGL_LIBS})
 endforeach()
