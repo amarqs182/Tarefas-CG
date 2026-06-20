@@ -1,0 +1,200 @@
+{
+  "scene": {
+    "name": "Diorama CG 2026/1",
+    "background": [0.2, 0.3, 0.3],
+    "camera": {
+      "position": [0.0, 2.0, 8.0],
+      "fov": 45.0,
+      "near": 0.1,
+      "far": 100.0
+    }
+  },
+  "objects": [
+    {
+      "id": "cubo_principal",
+      "name": "Cubo Principal",
+      "type": "cube",
+      "position": [-3.0, 0.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "material": {
+        "color": [0.8, 0.2, 0.1],
+        "Ka": 0.2,
+        "Kd": 0.7,
+        "Ks": 1.0,
+        "shininess": 32.0
+      },
+      "texture": null,
+      "trajectory": {
+        "active": false,
+        "speed": 1.5,
+        "points": [
+          [-3.0, 0.0, 0.0],
+          [-3.0, 2.0, 0.0],
+          [-1.0, 2.0, 0.0],
+          [-1.0, 0.0, 0.0]
+        ]
+      }
+    },
+    {
+      "id": "esfera_texturizada",
+      "name": "Esfera Texturizada",
+      "type": "sphere",
+      "position": [0.0, 0.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0],
+      "scale": [0.8, 0.8, 0.8],
+      "material": {
+        "color": [0.2, 0.8, 0.2],
+        "Ka": 0.1,
+        "Kd": 0.7,
+        "Ks": 0.5,
+        "shininess": 16.0
+      },
+      "texture": "tex/pixelWall.png",
+      "trajectory": {
+        "active": false,
+        "speed": 1.0,
+        "points": [
+          [0.0, 0.0, 0.0],
+          [0.0, 1.5, 0.0],
+          [1.5, 1.5, 0.0],
+          [1.5, 0.0, 0.0]
+        ]
+      }
+    },
+    {
+      "id": "piramide_azul",
+      "name": "Piramide Azul",
+      "type": "pyramid",
+      "position": [3.0, 0.0, 0.0],
+      "rotation": [0.0, 45.0, 0.0],
+      "scale": [1.0, 1.5, 1.0],
+      "material": {
+        "color": [0.2, 0.2, 1.0],
+        "Ka": 0.1,
+        "Kd": 0.7,
+        "Ks": 0.8,
+        "shininess": 64.0
+      },
+      "texture": null,
+      "trajectory": {
+        "active": false,
+        "speed": 2.0,
+        "points": [
+          [3.0, 0.0, 0.0],
+          [3.0, 2.0, 0.0],
+          [1.0, 2.0, 0.0],
+          [1.0, 0.0, 0.0]
+        ]
+      }
+    },
+    {
+      "id": "chao",
+      "name": "Chao",
+      "type": "cube",
+      "position": [0.0, -1.5, 0.0],
+      "rotation": [0.0, 0.0, 0.0],
+      "scale": [15.0, 0.1, 15.0],
+      "material": {
+        "color": [0.4, 0.4, 0.4],
+        "Ka": 0.3,
+        "Kd": 0.6,
+        "Ks": 0.1,
+        "shininess": 8.0
+      },
+      "texture": null,
+      "trajectory": null
+    }
+  ],
+  "lights": [
+    {
+      "id": "luz_principal",
+      "name": "Luz Principal (Key Light)",
+      "type": "point",
+      "position": [5.0, 5.0, 5.0],
+      "color": [1.0, 1.0, 1.0],
+      "intensity": 1.0,
+      "active": true,
+      "attenuation": {
+        "constant": 1.0,
+        "linear": 0.09,
+        "quadratic": 0.032
+      }
+    },
+    {
+      "id": "luz_secundaria",
+      "name": "Luz Secundaria (Fill Light)",
+      "type": "point",
+      "position": [-3.0, 3.0, 2.0],
+      "color": [0.8, 0.8, 1.0],
+      "intensity": 0.6,
+      "active": true,
+      "attenuation": {
+        "constant": 1.0,
+        "linear": 0.09,
+        "quadratic": 0.032
+      }
+    },
+    {
+      "id": "luz_traseira",
+      "name": "Luz Traseira (Back Light)",
+      "type": "point",
+      "position": [0.0, 3.0, -5.0],
+      "color": [1.0, 0.9, 0.8],
+      "intensity": 0.4,
+      "active": true,
+      "attenuation": {
+        "constant": 1.0,
+        "linear": 0.09,
+        "quadratic": 0.032
+      }
+    }
+  ],
+  "controls": {
+    "camera": {
+      "forward": "W",
+      "backward": "S",
+      "left": "A",
+      "right": "D",
+      "up": "E",
+      "down": "Q",
+      "look": "Mouse",
+      "zoom": "Scroll"
+    },
+    "object_selection": {
+      "next_object": "TAB",
+      "previous_object": "SHIFT+TAB"
+    },
+    "transformations": {
+      "translate_forward": "I",
+      "translate_backward": "K",
+      "translate_left": "J",
+      "translate_right": "L",
+      "rotate_cw": "U",
+      "rotate_ccw": "O",
+      "scale_up": "PLUS",
+      "scale_down": "MINUS"
+    },
+    "lights": {
+      "toggle_light_1": "F1",
+      "toggle_light_2": "F2",
+      "toggle_light_3": "F3",
+      "toggle_all_lights": "F4"
+    },
+    "trajectory": {
+      "toggle_trajectory": "SPACE",
+      "reset_trajectory": "R",
+      "add_control_point": "1",
+      "remove_control_point": "2",
+      "clear_control_points": "3",
+      "speed_up": "UP",
+      "speed_down": "DOWN"
+    },
+    "bezier": {
+      "toggle_bezier": "B",
+      "add_bezier_point": "4",
+      "remove_bezier_point": "5"
+    },
+    "exit": "ESC"
+  }
+}
