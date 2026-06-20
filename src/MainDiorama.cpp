@@ -227,7 +227,7 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
 
     if (action == GLFW_PRESS && !renderObjects.empty() && !cursorLivre) {
 
-        if (key == GLFW_KEY_TAB) {
+        if (key == GLFW_KEY_F && mods == GLFW_MOD_SHIFT && action == GLFW_PRESS) {
             objeto_selecionado = (objeto_selecionado + 1) % renderObjects.size();
             objeto_trajetoria_selecionado = objeto_selecionado;
             cout << "Objeto selecionado: " << renderObjects[objeto_selecionado].config.name << endl;
@@ -358,6 +358,7 @@ void inicializaOpenGL() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsDark();
     ImGui_ImplGlfw_InitForOpenGL(Window, true);
     ImGui_ImplOpenGL3_Init("#version 410");
