@@ -174,6 +174,43 @@ void scroll_callback(GLFWwindow *window, double xoffset, double yoffset) {
     camera.processMouseScroll((float)yoffset);
 }
 
+// Processa teclas continuas (WASD/IJKL/UO/+/-) por FRAME via glfwGetKey,
+// nao via REPEAT-key_callback. REPEAT conflitava com sliders do ImGui
+// (teclas W/A/S/D/I servem para navegar sliders por convenção do ImGui).
+void processaInputContinuo() {
+    if (cursorLivre || renderObjects.empty()) return;
+
+    // Câmera
+    if (glfwGetKey(Window, GLFW_KEY_W) == GLFW_PRESS) camera.processKeyboard(Camera::FORWARD,  Tempo_entre_frames);
+    if (glfwGetKey(Window, GLFW_KEY_S) == GLFW_PRESS) camera.processKeyboard(Camera::BACKWARD, Tempo_entre_frames);
+    if (glfwGetKey(Window, GLFW_KEY_A) == GLFW_PRESS) camera.processKeyboard(Camera::LEFT,      Tempo_entre_frames);
+    if (glfwGetKey(Window, GLFW_KEY_D) == GLFW_PRESS) camera.processKeyboard(Camera::RIGHT_DIR, Tempo_entre_frames);
+    if (glfwGetKey(Window, GLFW_KEY_Q) == GLFW_PRESS) camera.processKeyboard(Camera::DOWN,      Tempo_entre_frames);
+    if (glfwGetKey(Window, GLFW_KEY_E) == GLFW_PRESS) camera.processKeyboard(Camera::UP,        Tempo_entre_frames);
+
+    // Objeto selecionado
+    RenderObject& obj = renderObjects[objeto_selecionado];
+
+    const float moveSpeed = 0.2f;
+    if (glfwGetKey(Window, GLFW_KEY_I) == GLFW_PRESS) obj.position.z -= moveSpeed;
+    if (glfwGetKey(Window, GLFW_KEY_K) == GLFW_PRESS) obj.position.z += moveSpeed;
+    if (glfwGetKey(Window, GLFW_KEY_J) == GLFW_PRESS) obj.position.x -= moveSpeed;
+    if (glfwGetKey(Window, GLFW_KEY_L) == GLFW_PRESS) obj.position.x += moveSpeed;
+
+    const float rotSpeed = 5.0f;
+    if (glfwGetKey(Window, GLFW_KEY_U) == GLFW_PRESS) obj.rotation.y += rotSpeed;
+    if (glfwGetKey(Window, GLFW_KEY_O) == GLFW_PRESS) obj.rotation.y -= rotSpeed;
+
+    const float scaleSpeed = 0.1f;
+    if (glfwGetKey(Window, GLFW_KEY_EQUAL)  == GLFW_PRESS || glfwGetKey(Window, GLFW_KEY_KP_ADD) == GLFW_PRESS) {
+        obj.scale += glm::vec3(scaleSpeed);
+    }
+    if (glfwGetKey(Window, GLFW_KEY_MINUS) == GLFW_PRESS || glfwGetKey(Window, GLFW_KEY_KP_SUBTRACT) == GLFW_PRESS) {
+        obj.scale -= glm::vec3(scaleSpeed);
+        if (obj.scale.x < 0.1f) obj.scale = glm::vec3(0.1f);
+    }
+}
+
 void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
@@ -187,16 +224,10 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
         }
     }
 
-    if (action == GLFW_PRESS || action == GLFW_REPEAT) {
-        if (!cursorLivre) {
-            if (key == GLFW_KEY_W) camera.processKeyboard(Camera::FORWARD, Tempo_entre_frames);
-            if (key == GLFW_KEY_S) camera.processKeyboard(Camera::BACKWARD, Tempo_entre_frames);
-            if (key == GLFW_KEY_A) camera.processKeyboard(Camera::LEFT, Tempo_entre_frames);
-            if (key == GLFW_KEY_D) camera.processKeyboard(Camera::RIGHT_DIR, Tempo_entre_frames);
-            if (key == GLFW_KEY_Q) camera.processKeyboard(Camera::DOWN, Tempo_entre_frames);
-            if (key == GLFW_KEY_E) camera.processKeyboard(Camera::UP, Tempo_entre_frames);
-        }
-    }
+    // Os comandos REPEAT foram REMOVIDOS deste callback porque conflitavam
+    // com sliders do ImGui (W/A/S/D/I/J/K/L/U/O/+/- sao teclas de navegar
+    // sliders por padrao). Agora eles sao processados em processaInputContinuo()
+    // dentro do loop principal via glfwGetKey(), que nao conflita com ImGui.
 
     if (action == GLFW_PRESS && !renderObjects.empty() && !cursorLivre) {
         RenderObject& obj = renderObjects[objeto_selecionado];
@@ -535,6 +566,7 @@ void inicializaShaders() {
 
         layout(location = 0) in vec3 vertex_posicao;
         layout(location = 1) in vec3 vertex_normal;
+        layout(location = 2) in vec2 vertex_texCoord;
 
         uniform mat4 model;
         uniform mat4 view;
@@ -542,12 +574,14 @@ void inicializaShaders() {
 
         out vec3 fragPos;
         out vec3 normal;
+        out vec2 vTexCoord;
 
         void main()
         {
             vec4 worldPos = model * vec4(vertex_posicao, 1.0);
             fragPos = worldPos.xyz;
             normal = mat3(transpose(inverse(model))) * vertex_normal;
+            vTexCoord = vertex_texCoord;
             gl_Position = proj * view * worldPos;
         }
     )";
@@ -559,6 +593,7 @@ void inicializaShaders() {
 
         in vec3 fragPos;
         in vec3 normal;
+        in vec2 vTexCoord;
 
         out vec4 frag_colour;
 
@@ -581,15 +616,30 @@ void inicializaShaders() {
         uniform float Kl;
         uniform float Kq;
 
+        uniform sampler2D uTexture;
+        uniform bool useTexture;
+
         void main()
         {
             vec3 N = normalize(normal);
             vec3 V = normalize(viewPos - fragPos);
 
-            vec3 result = vec3(0.0);
+            // Cor base: textura quando disponivel, senao cor do material
+            vec3 baseColor = useTexture ? texture(uTexture, vTexCoord).rgb : objectColor;
 
-            for (int i = 0; i < numLights; i++)
-            {
+            // Ambient GLOBAL: soma de TODAS as luzes (ativas ou nao).
+            // Luz desligada em "luz ambientes" era o bug #4 — agora ambient
+            // e sempre contabilizado por luz (mesmo se so do furo de Phong).
+            vec3 ambientTotal = vec3(0.0);
+            for (int i = 0; i < numLights; i++) {
+                ambientTotal += Ka * lightColor[i] * lightIntensity[i];
+            }
+            vec3 ambient = ambientTotal * baseColor;
+
+            vec3 diffuseSum = vec3(0.0);
+            vec3 specularSum = vec3(0.0);
+
+            for (int i = 0; i < numLights; i++) {
                 if (!lightActive[i])
                     continue;
 
@@ -598,8 +648,6 @@ void inicializaShaders() {
 
                 float d = length(lightPos[i] - fragPos);
                 float attenuation = 1.0 / (Kc + Kl * d + Kq * (d * d));
-
-                vec3 ambient = Ka * lightColor[i] * lightIntensity[i];
 
                 float diff = max(dot(N, L), 0.0);
                 vec3 diffuse = Kd * diff * lightColor[i] * lightIntensity[i];
@@ -610,10 +658,11 @@ void inicializaShaders() {
                 diffuse *= attenuation;
                 specular *= attenuation;
 
-                result += (ambient + diffuse) * objectColor + specular;
+                diffuseSum  += diffuse  * baseColor;
+                specularSum += specular;
             }
 
-            frag_colour = vec4(result, 1.0);
+            frag_colour = vec4(ambient + diffuseSum + specularSum, 1.0);
         }
     )";
 
@@ -635,6 +684,14 @@ void inicializaShaders() {
 
     glDeleteShader(vs);
     glDeleteShader(fs);
+
+    // Associa o sampler (uTexture) a texture unit 0 uma unica vez.
+    // Como o shader so tem 1 sampler, esta linha e equivalente a
+    //   glUniform1i(glGetUniformLocation(Shader_programm, "uTexture"), 0);
+    // feita uma vez so na inicializacao. GlActiveTexture(GL_TEXTURE0) no
+    // loop garante que o textureID certo fica na unit 0.
+    glUseProgram(Shader_programm);
+    glUniform1i(glGetUniformLocation(Shader_programm, "uTexture"), 0);
 }
 
 // -----------------------------
@@ -695,9 +752,11 @@ void atualizaIluminacao() {
         glUniform1i(glGetUniformLocation(Shader_programm, prefix.c_str()), lights[i].active ? 1 : 0);
     }
 
+    // Atenuacao padrao OpenGL: fraca → luzes visiveis ao longe
+    // (Compact defaults Kc=1.0/0.7/1.8 resultam em death-black cena)
     glUniform1f(glGetUniformLocation(Shader_programm, "Kc"), 1.0f);
-    glUniform1f(glGetUniformLocation(Shader_programm, "Kl"), 0.09f);
-    glUniform1f(glGetUniformLocation(Shader_programm, "Kq"), 0.032f);
+    glUniform1f(glGetUniformLocation(Shader_programm, "Kl"), 0.01f);
+    glUniform1f(glGetUniformLocation(Shader_programm, "Kq"), 0.001f);
 }
 
 // -----------------------------
@@ -735,25 +794,39 @@ void atualizaTrajetorias(float deltaTime) {
         if (traj.useBezier && traj.bezierPoints.size() >= 2) {
             traj.progress += deltaTime * traj.speed * 0.2f;
 
+            // Numero de segmentos cubicos: precisa de 4 pontos por segmento.
+            // Segmentos = ((N-1)/3). Se usuario der 4 pontos => 1 segmento.
+            // 7 pontos => 2 segmentos cubicos com 1 ponto de overlap.
+            size_t numSegments = (traj.bezierPoints.size() >= 4)
+                ? (traj.bezierPoints.size() - 1) / 3
+                : 1;
+
             if (traj.progress >= 1.0f) {
                 traj.progress = 0.0f;
                 traj.currentSegment++;
-                if (traj.currentSegment >= traj.bezierPoints.size() - 1) {
+                if (traj.currentSegment >= numSegments) {
                     traj.currentSegment = 0;
                 }
             }
 
-            size_t startIdx = traj.currentSegment;
-            vector<glm::vec3> segmentPoints;
-            segmentPoints.push_back(traj.bezierPoints[startIdx]);
-            if (startIdx + 2 < traj.bezierPoints.size()) {
-                segmentPoints.push_back(traj.bezierPoints[startIdx + 1]);
-                segmentPoints.push_back(traj.bezierPoints[startIdx + 2]);
-            } else if (startIdx + 1 < traj.bezierPoints.size()) {
-                segmentPoints.push_back(traj.bezierPoints[startIdx + 1]);
+            size_t segIdx = traj.currentSegment;
+            // Para cada segmento cubico, pegamos os 4 pontos
+            // (P0, P1, P2, P3) com indice de partida = segIdx * 3.
+            size_t baseIdx = segIdx * 3;
+            vector<glm::vec3> seg;
+            seg.reserve(4);
+            for (int k = 0; k < 4; ++k) {
+                size_t idx = baseIdx + k;
+                if (idx < traj.bezierPoints.size()) {
+                    seg.push_back(traj.bezierPoints[idx]);
+                } else {
+                    // Fallback do ultimo ponto (caso de buffer curto)
+                    seg.push_back(traj.bezierPoints.back());
+                }
             }
 
-            traj.currentPosition = bezierCurve(segmentPoints, traj.progress);
+            // De Casteljau sobre 4 pontos = Bezier cubica.
+            traj.currentPosition = bezierCurve(seg, traj.progress);
         } else {
             traj.progress += deltaTime * traj.speed * 0.2f;
 
@@ -837,7 +910,7 @@ void inicializaCena() {
     obj2.rotation = glm::vec3(0.0f);
     obj2.scale = glm::vec3(0.8f);
     obj2.material = {glm::vec3(0.2f, 0.8f, 0.2f), 0.1f, 0.7f, 0.5f, 16.0f};
-    obj2.texture = "../assets/tex/pixelWall.png";
+    obj2.texture = "assets/tex/pixelWall.png";
 
     SceneObject obj3;
     obj3.id = "piramide_azul";
@@ -867,7 +940,7 @@ void inicializaCena() {
     obj5.rotation = glm::vec3(0.0f);
     obj5.scale = glm::vec3(1.0f);
     obj5.material = {glm::vec3(0.8f, 0.5f, 0.2f), 0.2f, 0.7f, 0.8f, 32.0f};
-    obj5.texture = "../assets/Modelos3D/Suzanne.obj";
+    obj5.texture = "assets/Modelos3D/Suzanne.obj";
 
     vector<SceneObject*> objects = {&obj1, &obj2, &obj3, &obj4, &obj5};
 
@@ -1015,6 +1088,10 @@ void inicializaRenderizacao() {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        // Teclas continuas (WASD/IJKL/+/-/UO): rodam ANTES do ImGui::Render
+        // para que ImGui nao roube as teclas quando nao tiver widget focado.
+        processaInputContinuo();
+
         atualizaTrajetorias(Tempo_entre_frames);
 
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
@@ -1030,7 +1107,14 @@ void inicializaRenderizacao() {
             defineMaterial(obj.config.material);
             transformacaoGenerica(obj.position, obj.rotation, obj.scale);
 
+            // BUG #1 fix: shader agora usa sampler2D — bindar textura
+            // e dizer ao shader se este objeto tem ou nao textura.
+            // O sampler sempre e associado a GL_TEXTURE0 (porque so temos
+            // 1 unit no shader). Objetos sem textura caem no `baseColor =
+            // objectColor` (useTexture=false).
+            glUniform1i(glGetUniformLocation(Shader_programm, "useTexture"), obj.textureID != 0 ? 1 : 0);
             if (obj.textureID != 0) {
+                glActiveTexture(GL_TEXTURE0);
                 glBindTexture(GL_TEXTURE_2D, obj.textureID);
             }
 
@@ -1090,9 +1174,9 @@ void inicializaRenderizacao() {
                 if (ImGui::TreeNode("Mudar Textura")) {
                     vector<pair<string, string>> textures = {
                         {"Nenhuma", ""},
-                        {"Pixel Wall", "../assets/tex/pixelWall.png"},
-                        {"Suzanne", "../assets/Modelos3D/Suzanne.png"},
-                        {"Suzanne UV", "../assets/Modelos3D/SuzanneUV.png"}
+                        {"Pixel Wall", "assets/tex/pixelWall.png"},
+                        {"Suzanne", "assets/Modelos3D/Suzanne.png"},
+                        {"Suzanne UV", "assets/Modelos3D/SuzanneUV.png"}
                     };
 
                     for (const auto& tex : textures) {
