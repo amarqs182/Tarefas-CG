@@ -43,6 +43,7 @@
 
 #include "Camera.h"
 #include "ObjParser.h"
+#include "Trajectory.h"
 
 // ImGui
 #include "imgui.h"
@@ -100,16 +101,12 @@ struct RenderObject {
     string currentTexturePath;  // Caminho da textura atual
 };
 
-struct BezierTrajectory {
-    bool active;
-    bool useBezier;
-    float speed;
-    vector<glm::vec3> controlPoints;
-    vector<glm::vec3> bezierPoints;
-    float progress;
-    size_t currentSegment;
-    glm::vec3 currentPosition;
-};
+// Trajetoria agora usa a classe Trajectory (definida em include/Trajectory.h),
+// que ja encapsula interpolacao linear + bezier cubico via enum Interpolation.
+// Ver refactor/use-trajectory-class no historico do git.
+using Traj = Trajectory;
+
+std::vector<Traj> trajectories;
 
 // -----------------------------
 // Variáveis globais
@@ -130,7 +127,6 @@ int objeto_selecionado = 0;
 SceneLight lights[MAX_LIGHTS];
 int numLights = 0;
 
-vector<BezierTrajectory> trajectories;
 int objeto_trajetoria_selecionado = 0;
 
 int Num_vertices_esfera = 0;
@@ -230,32 +226,14 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
     // dentro do loop principal via glfwGetKey(), que nao conflita com ImGui.
 
     if (action == GLFW_PRESS && !renderObjects.empty() && !cursorLivre) {
-        RenderObject& obj = renderObjects[objeto_selecionado];
 
         if (key == GLFW_KEY_TAB) {
             objeto_selecionado = (objeto_selecionado + 1) % renderObjects.size();
             objeto_trajetoria_selecionado = objeto_selecionado;
-            cout << "Objeto selecionado: " << obj.config.name << endl;
+            cout << "Objeto selecionado: " << renderObjects[objeto_selecionado].config.name << endl;
         }
 
-        float moveSpeed = 0.2f;
-        if (key == GLFW_KEY_I) obj.position.z -= moveSpeed;
-        if (key == GLFW_KEY_K) obj.position.z += moveSpeed;
-        if (key == GLFW_KEY_J) obj.position.x -= moveSpeed;
-        if (key == GLFW_KEY_L) obj.position.x += moveSpeed;
-
-        float rotSpeed = 5.0f;
-        if (key == GLFW_KEY_U) obj.rotation.y += rotSpeed;
-        if (key == GLFW_KEY_O) obj.rotation.y -= rotSpeed;
-
-        float scaleSpeed = 0.1f;
-        if (key == GLFW_KEY_EQUAL || key == GLFW_KEY_KP_ADD) {
-            obj.scale += glm::vec3(scaleSpeed);
-        }
-        if (key == GLFW_KEY_MINUS || key == GLFW_KEY_KP_SUBTRACT) {
-            obj.scale -= glm::vec3(scaleSpeed);
-            if (obj.scale.x < 0.1f) obj.scale = glm::vec3(0.1f);
-        }
+        RenderObject& obj = renderObjects[objeto_selecionado];
 
         if (key == GLFW_KEY_F1 && numLights > 0) {
             lights[0].active = !lights[0].active;
@@ -282,63 +260,73 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
         }
 
         if (key == GLFW_KEY_SPACE && objeto_trajetoria_selecionado < (int)trajectories.size()) {
-            BezierTrajectory& traj = trajectories[objeto_trajetoria_selecionado];
-            traj.active = !traj.active;
-            cout << "Trajetoria " << (traj.active ? "ATIVADA" : "DESATIVADA") << endl;
+            Traj& traj = trajectories[objeto_trajetoria_selecionado];
+            traj.setActive(!traj.isActive());
+            cout << "Trajetoria " << (traj.isActive() ? "ATIVADA" : "DESATIVADA") << endl;
         }
 
         if (key == GLFW_KEY_B && objeto_trajetoria_selecionado < (int)trajectories.size()) {
-            BezierTrajectory& traj = trajectories[objeto_trajetoria_selecionado];
-            traj.useBezier = !traj.useBezier;
-            cout << "Modo Bezier: " << (traj.useBezier ? "ATIVADO" : "DESATIVADO") << endl;
+            Traj& traj = trajectories[objeto_trajetoria_selecionado];
+            // Toggle entre LINEAR e BEZIER via API da classe Trajectory
+            Trajectory::Interpolation novoModo =
+                (traj.getInterpolation() == Trajectory::Interpolation::LINEAR)
+                ? Trajectory::Interpolation::BEZIER
+                : Trajectory::Interpolation::LINEAR;
+            traj.setInterpolation(novoModo);
+            cout << "Modo interpolacao: "
+                 << (novoModo == Trajectory::Interpolation::BEZIER ? "BEZIER" : "LINEAR")
+                 << endl;
         }
 
         if (key == GLFW_KEY_R && objeto_trajetoria_selecionado < (int)trajectories.size()) {
-            trajectories[objeto_trajetoria_selecionado].progress = 0.0f;
-            trajectories[objeto_trajetoria_selecionado].currentSegment = 0;
+            trajectories[objeto_trajetoria_selecionado].reset();
             cout << "Trajetoria resetada." << endl;
         }
 
         if (key == GLFW_KEY_UP && objeto_trajetoria_selecionado < (int)trajectories.size()) {
-            trajectories[objeto_trajetoria_selecionado].speed += 0.5f;
-            cout << "Velocidade: " << trajectories[objeto_trajetoria_selecionado].speed << endl;
+            Traj& traj = trajectories[objeto_trajetoria_selecionado];
+            traj.setSpeed(traj.getSpeed() + 0.5f);
+            cout << "Velocidade: " << traj.getSpeed() << endl;
         }
 
         if (key == GLFW_KEY_DOWN && objeto_trajetoria_selecionado < (int)trajectories.size()) {
-            float& spd = trajectories[objeto_trajetoria_selecionado].speed;
-            spd -= 0.5f;
+            Traj& traj = trajectories[objeto_trajetoria_selecionado];
+            float spd = traj.getSpeed() - 0.5f;
             if (spd < 0.1f) spd = 0.1f;
+            traj.setSpeed(spd);
             cout << "Velocidade: " << spd << endl;
         }
 
         if (key == GLFW_KEY_1 && objeto_trajetoria_selecionado < (int)trajectories.size()) {
-            trajectories[objeto_trajetoria_selecionado].controlPoints.push_back(obj.position);
-            cout << "Ponto adicionado. Total: " << trajectories[objeto_trajetoria_selecionado].controlPoints.size() << endl;
+            trajectories[objeto_trajetoria_selecionado].addPoint(obj.position);
+            cout << "Ponto adicionado. Total: " << trajectories[objeto_trajetoria_selecionado].getPointCount() << endl;
         }
 
         if (key == GLFW_KEY_2 && objeto_trajetoria_selecionado < (int)trajectories.size()) {
-            auto& pts = trajectories[objeto_trajetoria_selecionado].controlPoints;
-            if (!pts.empty()) {
-                pts.pop_back();
-                cout << "Ponto removido. Total: " << pts.size() << endl;
+            Traj& traj = trajectories[objeto_trajetoria_selecionado];
+            size_t n = traj.getPointCount();
+            if (n > 0) {
+                traj.removePoint(n - 1);
+                cout << "Ponto removido. Total: " << traj.getPointCount() << endl;
             }
         }
 
         if (key == GLFW_KEY_3 && objeto_trajetoria_selecionado < (int)trajectories.size()) {
-            trajectories[objeto_trajetoria_selecionado].controlPoints.clear();
+            trajectories[objeto_trajetoria_selecionado].clearPoints();
             cout << "Todos os pontos removidos." << endl;
         }
 
         if (key == GLFW_KEY_4 && objeto_trajetoria_selecionado < (int)trajectories.size()) {
-            trajectories[objeto_trajetoria_selecionado].bezierPoints.push_back(obj.position);
-            cout << "Ponto Bezier adicionado. Total: " << trajectories[objeto_trajetoria_selecionado].bezierPoints.size() << endl;
+            trajectories[objeto_trajetoria_selecionado].addBezierPoint(obj.position);
+            cout << "Ponto Bezier adicionado. Total: " << trajectories[objeto_trajetoria_selecionado].getBezierPointCount() << endl;
         }
 
         if (key == GLFW_KEY_5 && objeto_trajetoria_selecionado < (int)trajectories.size()) {
-            auto& pts = trajectories[objeto_trajetoria_selecionado].bezierPoints;
-            if (!pts.empty()) {
-                pts.pop_back();
-                cout << "Ponto Bezier removido. Total: " << pts.size() << endl;
+            Traj& traj = trajectories[objeto_trajetoria_selecionado];
+            size_t n = traj.getBezierPointCount();
+            if (n > 0) {
+                traj.removeBezierPoint(n - 1);
+                cout << "Ponto Bezier removido. Total: " << traj.getBezierPointCount() << endl;
             }
         }
     }
@@ -382,48 +370,55 @@ void inicializaOpenGL() {
 // Geometry creation
 // -----------------------------
 GLuint criaCubo() {
+    // Formato: pos(3) + normal(3) + uv(2) = 8 floats por vertice
     float points[] = {
-        0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f,
-        0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f,
-        -0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f,
-        0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f,
-        -0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f,
-        -0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f,
+        // Frente (z+)
+        0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+        0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f,
+        -0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+        0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+        -0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+        -0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f,
 
-        0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f,
-        0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f,
-        -0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f,
-        0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f,
-        -0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f,
-        -0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f,
+        // Tras (z-)
+        0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f,
+        0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f,
+        -0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f,
+        0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f,
+        -0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f,
+        -0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f, 1.0f, 1.0f,
 
-        -0.5f, -0.5f, 0.5f, -1.0f, 0.0f, 0.0f,
-        -0.5f, 0.5f, 0.5f, -1.0f, 0.0f, 0.0f,
-        -0.5f, -0.5f, -0.5f, -1.0f, 0.0f, 0.0f,
-        -0.5f, -0.5f, -0.5f, -1.0f, 0.0f, 0.0f,
-        -0.5f, 0.5f, -0.5f, -1.0f, 0.0f, 0.0f,
-        -0.5f, 0.5f, 0.5f, -1.0f, 0.0f, 0.0f,
+        // Esquerda (x-)
+        -0.5f, -0.5f, 0.5f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        -0.5f, 0.5f, 0.5f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+        -0.5f, -0.5f, -0.5f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+        -0.5f, -0.5f, -0.5f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+        -0.5f, 0.5f, -0.5f, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f,
+        -0.5f, 0.5f, 0.5f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f,
 
-        0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f,
-        0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f,
-        0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.0f,
-        0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.0f,
-        0.5f, 0.5f, -0.5f, 1.0f, 0.0f, 0.0f,
-        0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f,
+        // Direita (x+)
+        0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+        0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+        0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+        0.5f, 0.5f, -0.5f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f,
+        0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f,
 
-        -0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f,
-        0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f,
-        0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f,
-        0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f,
-        -0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f,
-        -0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f,
+        // Baixo (y-)
+        -0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+        0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f,
+        0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f, 1.0f, 1.0f,
+        0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f, 1.0f, 1.0f,
+        -0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f, 0.0f, 1.0f,
+        -0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f,
 
-        -0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f,
-        0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f,
-        0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
-        0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
-        -0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
-        -0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f
+        // Cima (y+)
+        -0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f,
+        0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f,
+        0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f,
+        0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f,
+        -0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+        -0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f
     };
 
     GLuint VAO, VBO;
@@ -434,16 +429,20 @@ GLuint criaCubo() {
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(points), points, GL_STATIC_DRAW);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)0);
     glEnableVertexAttribArray(0);
 
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
+
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
 
     return VAO;
 }
 
 GLuint criaEsfera() {
+    // Formato: pos(3) + normal(3) + uv(2) = 8 floats por vertice
     vector<float> points;
     int stacks = 20;
     int sectors = 20;
@@ -468,17 +467,23 @@ GLuint criaEsfera() {
             glm::vec3 n3 = glm::normalize(v3);
             glm::vec3 n4 = glm::normalize(v4);
 
-            points.insert(points.end(), {v1.x, v1.y, v1.z, n1.x, n1.y, n1.z});
-            points.insert(points.end(), {v2.x, v2.y, v2.z, n2.x, n2.y, n2.z});
-            points.insert(points.end(), {v3.x, v3.y, v3.z, n3.x, n3.y, n3.z});
+            // UV: u = theta/(2*PI), v = phi/PI
+            float u1 = theta1 / (2.0f * PI);
+            float u2 = theta2 / (2.0f * PI);
+            float v_1 = phi1 / PI;
+            float v_2 = phi2 / PI;
 
-            points.insert(points.end(), {v1.x, v1.y, v1.z, n1.x, n1.y, n1.z});
-            points.insert(points.end(), {v3.x, v3.y, v3.z, n3.x, n3.y, n3.z});
-            points.insert(points.end(), {v4.x, v4.y, v4.z, n4.x, n4.y, n4.z});
+            points.insert(points.end(), {v1.x, v1.y, v1.z, n1.x, n1.y, n1.z, u1, v_1});
+            points.insert(points.end(), {v2.x, v2.y, v2.z, n2.x, n2.y, n2.z, u1, v_2});
+            points.insert(points.end(), {v3.x, v3.y, v3.z, n3.x, n3.y, n3.z, u2, v_2});
+
+            points.insert(points.end(), {v1.x, v1.y, v1.z, n1.x, n1.y, n1.z, u1, v_1});
+            points.insert(points.end(), {v3.x, v3.y, v3.z, n3.x, n3.y, n3.z, u2, v_2});
+            points.insert(points.end(), {v4.x, v4.y, v4.z, n4.x, n4.y, n4.z, u2, v_1});
         }
     }
 
-    Num_vertices_esfera = points.size() / 6;
+    Num_vertices_esfera = points.size() / 8;
 
     GLuint VAO, VBO;
     glGenVertexArrays(1, &VAO);
@@ -488,40 +493,50 @@ GLuint criaEsfera() {
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, points.size() * sizeof(float), points.data(), GL_STATIC_DRAW);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)0);
     glEnableVertexAttribArray(0);
 
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
+
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
 
     return VAO;
 }
 
 GLuint criaPiramide() {
+    // Formato: pos(3) + normal(3) + uv(2) = 8 floats por vertice
     float points[] = {
-        0.0f, 0.5f, 0.0f, 0.0f, 0.447f, 0.894f,
-        -0.5f, -0.5f, 0.5f, 0.0f, 0.447f, 0.894f,
-        0.5f, -0.5f, 0.5f, 0.0f, 0.447f, 0.894f,
+        // Frente
+        0.0f, 0.5f, 0.0f, 0.0f, 0.447f, 0.894f, 0.5f, 1.0f,
+        -0.5f, -0.5f, 0.5f, 0.0f, 0.447f, 0.894f, 0.0f, 0.0f,
+        0.5f, -0.5f, 0.5f, 0.0f, 0.447f, 0.894f, 1.0f, 0.0f,
 
-        0.0f, 0.5f, 0.0f, 0.894f, 0.447f, 0.0f,
-        0.5f, -0.5f, 0.5f, 0.894f, 0.447f, 0.0f,
-        0.5f, -0.5f, -0.5f, 0.894f, 0.447f, 0.0f,
+        // Direita
+        0.0f, 0.5f, 0.0f, 0.894f, 0.447f, 0.0f, 0.5f, 1.0f,
+        0.5f, -0.5f, 0.5f, 0.894f, 0.447f, 0.0f, 0.0f, 0.0f,
+        0.5f, -0.5f, -0.5f, 0.894f, 0.447f, 0.0f, 1.0f, 0.0f,
 
-        0.0f, 0.5f, 0.0f, 0.0f, 0.447f, -0.894f,
-        0.5f, -0.5f, -0.5f, 0.0f, 0.447f, -0.894f,
-        -0.5f, -0.5f, -0.5f, 0.0f, 0.447f, -0.894f,
+        // Tras
+        0.0f, 0.5f, 0.0f, 0.0f, 0.447f, -0.894f, 0.5f, 1.0f,
+        0.5f, -0.5f, -0.5f, 0.0f, 0.447f, -0.894f, 0.0f, 0.0f,
+        -0.5f, -0.5f, -0.5f, 0.0f, 0.447f, -0.894f, 1.0f, 0.0f,
 
-        0.0f, 0.5f, 0.0f, -0.894f, 0.447f, 0.0f,
-        -0.5f, -0.5f, -0.5f, -0.894f, 0.447f, 0.0f,
-        -0.5f, -0.5f, 0.5f, -0.894f, 0.447f, 0.0f,
+        // Esquerda
+        0.0f, 0.5f, 0.0f, -0.894f, 0.447f, 0.0f, 0.5f, 1.0f,
+        -0.5f, -0.5f, -0.5f, -0.894f, 0.447f, 0.0f, 0.0f, 0.0f,
+        -0.5f, -0.5f, 0.5f, -0.894f, 0.447f, 0.0f, 1.0f, 0.0f,
 
-        -0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f,
-        -0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f,
-        0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f,
+        // Base 1
+        -0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+        -0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f, 0.0f, 1.0f,
+        0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f, 1.0f, 1.0f,
 
-        -0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f,
-        0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f,
-        0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f
+        // Base 2
+        -0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+        0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f, 1.0f, 1.0f,
+        0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f
     };
 
     GLuint VAO, VBO;
@@ -532,11 +547,14 @@ GLuint criaPiramide() {
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(points), points, GL_STATIC_DRAW);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)0);
     glEnableVertexAttribArray(0);
 
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
+
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
 
     return VAO;
 }
@@ -760,91 +778,27 @@ void atualizaIluminacao() {
 }
 
 // -----------------------------
-// Bezier curve
-// -----------------------------
-glm::vec3 bezierCurve(const vector<glm::vec3>& points, float t) {
-    if (points.empty()) return glm::vec3(0.0f);
-    if (points.size() == 1) return points[0];
-    if (points.size() == 2) return glm::mix(points[0], points[1], t);
-
-    vector<glm::vec3> temp = points;
-    int n = temp.size();
-
-    for (int k = 1; k < n; k++) {
-        for (int i = 0; i < n - k; i++) {
-            temp[i] = glm::mix(temp[i], temp[i + 1], t);
-        }
-    }
-
-    return temp[0];
-}
-
-// -----------------------------
 // Trajectory update
 // -----------------------------
+// Novo: usa a classe Trajectory completa.
+// A classe ja sabe:
+//   - avancar progresso (linear OU bezier cubico)
+//   - calcular posicao via computeCurrentPosition()
+//   - ciclicamente voltar ao comeco em cada modo
 void atualizaTrajetorias(float deltaTime) {
     for (size_t i = 0; i < trajectories.size() && i < renderObjects.size(); i++) {
-        BezierTrajectory& traj = trajectories[i];
+        Traj& traj = trajectories[i];
 
-        if (!traj.active || traj.controlPoints.empty()) {
-            renderObjects[i].position = traj.currentPosition;
+        // Se inativa -> nao altera a posicao do objeto
+        if (!traj.isActive()) {
             continue;
         }
 
-        if (traj.useBezier && traj.bezierPoints.size() >= 2) {
-            traj.progress += deltaTime * traj.speed * 0.2f;
+        // Atualiza a trajetoria (progresso + segmento, ja cuida do ciclo)
+        traj.update(deltaTime);
 
-            // Numero de segmentos cubicos: precisa de 4 pontos por segmento.
-            // Segmentos = ((N-1)/3). Se usuario der 4 pontos => 1 segmento.
-            // 7 pontos => 2 segmentos cubicos com 1 ponto de overlap.
-            size_t numSegments = (traj.bezierPoints.size() >= 4)
-                ? (traj.bezierPoints.size() - 1) / 3
-                : 1;
-
-            if (traj.progress >= 1.0f) {
-                traj.progress = 0.0f;
-                traj.currentSegment++;
-                if (traj.currentSegment >= numSegments) {
-                    traj.currentSegment = 0;
-                }
-            }
-
-            size_t segIdx = traj.currentSegment;
-            // Para cada segmento cubico, pegamos os 4 pontos
-            // (P0, P1, P2, P3) com indice de partida = segIdx * 3.
-            size_t baseIdx = segIdx * 3;
-            vector<glm::vec3> seg;
-            seg.reserve(4);
-            for (int k = 0; k < 4; ++k) {
-                size_t idx = baseIdx + k;
-                if (idx < traj.bezierPoints.size()) {
-                    seg.push_back(traj.bezierPoints[idx]);
-                } else {
-                    // Fallback do ultimo ponto (caso de buffer curto)
-                    seg.push_back(traj.bezierPoints.back());
-                }
-            }
-
-            // De Casteljau sobre 4 pontos = Bezier cubica.
-            traj.currentPosition = bezierCurve(seg, traj.progress);
-        } else {
-            traj.progress += deltaTime * traj.speed * 0.2f;
-
-            if (traj.progress >= 1.0f) {
-                traj.progress = 0.0f;
-                traj.currentSegment++;
-                if (traj.currentSegment >= traj.controlPoints.size()) {
-                    traj.currentSegment = 0;
-                }
-            }
-
-            size_t startIdx = traj.currentSegment;
-            size_t endIdx = (startIdx + 1) % traj.controlPoints.size();
-
-            traj.currentPosition = glm::mix(traj.controlPoints[startIdx], traj.controlPoints[endIdx], traj.progress);
-        }
-
-        renderObjects[i].position = traj.currentPosition;
+        // Posicao interpolada (linear OU bezier, baseado no interpolation flag)
+        renderObjects[i].position = traj.computeCurrentPosition();
     }
 }
 
@@ -988,13 +942,11 @@ void inicializaCena() {
 
         renderObjects.push_back(renderObj);
 
-        BezierTrajectory traj;
-        traj.active = false;
-        traj.useBezier = false;
-        traj.speed = 1.5f;
-        traj.progress = 0.0f;
-        traj.currentSegment = 0;
-        traj.currentPosition = obj->position;
+        Traj traj;
+        traj.setActive(false);
+        traj.setInterpolation(Trajectory::Interpolation::LINEAR);
+        traj.setSpeed(1.5f);
+        traj.reset();
         trajectories.push_back(traj);
     }
 
@@ -1005,10 +957,10 @@ void inicializaCena() {
     lights[2] = {"luz_traseira", "Back Light", glm::vec3(0.0f, 3.0f, -5.0f), glm::vec3(1.0f, 0.9f, 0.8f), 0.4f, true};
 
     // Add initial trajectory points for cube
-    trajectories[0].controlPoints.push_back(glm::vec3(-3.0f, 0.0f, 0.0f));
-    trajectories[0].controlPoints.push_back(glm::vec3(-3.0f, 2.0f, 0.0f));
-    trajectories[0].controlPoints.push_back(glm::vec3(-1.0f, 2.0f, 0.0f));
-    trajectories[0].controlPoints.push_back(glm::vec3(-1.0f, 0.0f, 0.0f));
+    trajectories[0].addPoint(glm::vec3(-3.0f, 0.0f, 0.0f));
+    trajectories[0].addPoint(glm::vec3(-3.0f, 2.0f, 0.0f));
+    trajectories[0].addPoint(glm::vec3(-1.0f, 2.0f, 0.0f));
+    trajectories[0].addPoint(glm::vec3(-1.0f, 0.0f, 0.0f));
 
     cout << "\n=== Controles ===" << endl;
     cout << "WASD/QE - Mover camera" << endl;
@@ -1034,9 +986,11 @@ void inicializaCena() {
 // -----------------------------
 void desenhaPontosControle() {
     for (size_t i = 0; i < trajectories.size(); i++) {
-        const BezierTrajectory& traj = trajectories[i];
+        const Traj& traj = trajectories[i];
 
-        for (size_t j = 0; j < traj.controlPoints.size(); j++) {
+        // Pontos de controle lineares (verde)
+        const auto& linearPts = traj.getPoints();
+        for (size_t j = 0; j < linearPts.size(); j++) {
             Material mat;
             mat.color = glm::vec3(0.0f, 1.0f, 0.0f);
             mat.Ka = 0.2f;
@@ -1047,14 +1001,18 @@ void desenhaPontosControle() {
             defineMaterial(mat);
 
             float escala = 0.1f;
-            if (j == traj.currentSegment && i == (size_t)objeto_trajetoria_selecionado)
+            if (i == (size_t)objeto_trajetoria_selecionado
+                && j == traj.getCurrentIndex()) {
                 escala = 0.15f;
+            }
 
-            transformacaoGenerica(traj.controlPoints[j], glm::vec3(0.0f), glm::vec3(escala));
+            transformacaoGenerica(linearPts[j], glm::vec3(0.0f), glm::vec3(escala));
             glDrawArrays(GL_TRIANGLES, 0, 36);
         }
 
-        for (size_t j = 0; j < traj.bezierPoints.size(); j++) {
+        // Pontos de controle Bezier (magenta)
+        const auto& bezierPts = traj.getBezierPoints();
+        for (size_t j = 0; j < bezierPts.size(); j++) {
             Material mat;
             mat.color = glm::vec3(1.0f, 0.0f, 1.0f);
             mat.Ka = 0.2f;
@@ -1064,7 +1022,15 @@ void desenhaPontosControle() {
 
             defineMaterial(mat);
 
-            transformacaoGenerica(traj.bezierPoints[j], glm::vec3(0.0f), glm::vec3(0.12f));
+            float escala = 0.12f;
+            // Destaca o segmento atual se for Bezier
+            if (i == (size_t)objeto_trajetoria_selecionado
+                && j >= traj.getCurrentSegment() * 3
+                && j < traj.getCurrentSegment() * 3 + 4) {
+                escala = 0.18f;
+            }
+
+            transformacaoGenerica(bezierPts[j], glm::vec3(0.0f), glm::vec3(escala));
             glDrawArrays(GL_TRIANGLES, 0, 36);
         }
     }
@@ -1242,13 +1208,26 @@ void inicializaRenderizacao() {
 
             // Trajetória
             if (objeto_trajetoria_selecionado < (int)trajectories.size()) {
-                BezierTrajectory& traj = trajectories[objeto_trajetoria_selecionado];
+                Traj& traj = trajectories[objeto_trajetoria_selecionado];
                 ImGui::Text("Trajetoria:");
-                ImGui::Checkbox("Ativa", &traj.active);
-                ImGui::Checkbox("Modo Bezier", &traj.useBezier);
-                ImGui::SliderFloat("Velocidade", &traj.speed, 0.1f, 5.0f);
-                ImGui::Text("Pontos: %d", (int)traj.controlPoints.size());
-                ImGui::Text("Bezier: %d", (int)traj.bezierPoints.size());
+
+                bool isActive = traj.isActive();
+                if (ImGui::Checkbox("Ativa", &isActive)) {
+                    traj.setActive(isActive);
+                }
+
+                bool isBezier = (traj.getInterpolation() == Trajectory::Interpolation::BEZIER);
+                if (ImGui::Checkbox("Modo Bezier", &isBezier)) {
+                    traj.setInterpolation(isBezier ? Trajectory::Interpolation::BEZIER : Trajectory::Interpolation::LINEAR);
+                }
+
+                float spd = traj.getSpeed();
+                if (ImGui::SliderFloat("Velocidade", &spd, 0.1f, 5.0f)) {
+                    traj.setSpeed(spd);
+                }
+
+                ImGui::Text("Pontos: %d", (int)traj.getPointCount());
+                ImGui::Text("Bezier: %d", (int)traj.getBezierPointCount());
             }
 
             ImGui::Separator();

@@ -62,8 +62,9 @@ set(EXERCISES
 )
 
 # Arquivos adicionais necessários para o MainDiorama
-# (Trajectory.cpp sera adicionado na Fase 3 — refactor)
+# Trajectory.cpp é usada a partir do branch refactor/use-trajectory-class.
 set(MAINDIORAMA_SRC
+    src/Trajectory.cpp
 )
 
 add_compile_options(-Wno-pragmas)
@@ -102,7 +103,15 @@ foreach(EXERCISE ${EXERCISES})
         ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
         ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
     )
-    add_executable(${EXERCISE} src/${EXERCISE}.cpp src/Camera.cpp src/ObjParser.cpp ${IMGUI_SOURCES} ${GLAD_C_FILE})
+    add_executable(${EXERCISE} src/${EXERCISE}.cpp src/Camera.cpp src/ObjParser.cpp ${MAINDIORAMA_SRC} ${IMGUI_SOURCES} ${GLAD_C_FILE})
     target_include_directories(${EXERCISE} PRIVATE ${CMAKE_SOURCE_DIR}/include/glad ${glm_SOURCE_DIR} ${stb_image_SOURCE_DIR})
     target_link_libraries(${EXERCISE} glfw ${OPENGL_LIBS})
+
+    # Copia assets para o diretorio de build
+    add_custom_command(TARGET ${EXERCISE} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/assets
+            $<TARGET_FILE_DIR:${EXERCISE}>/assets
+        COMMENT "Copiando assets para o diretorio de build..."
+    )
 endforeach()

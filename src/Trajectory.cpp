@@ -15,10 +15,12 @@
 // Construtor
 Trajectory::Trajectory()
     : currentPointIndex(0),
+      currentSegment(0),
       currentPosition(0.0f, 0.0f, 0.0f),
       speed(1.0f),
       active(false),
-      progress(0.0f)
+      progress(0.0f),
+      interpolation(Interpolation::LINEAR)
 {
 }
 
@@ -91,55 +93,64 @@ glm::vec3 Trajectory::getCurrentDestination() const
     return controlPoints[currentPointIndex];
 }
 
-// Retorna a posição atual do objeto (interpolação linear simples)
+// Retorna a posição atual do objeto (usa computeCurrentPosition que despacha
+// entre interpolação linear e bezier cubico baseado em `interpolation`)
 glm::vec3 Trajectory::getCurrentPosition() const
 {
-    if (controlPoints.empty())
-        return glm::vec3(0.0f);
-
-    if (controlPoints.size() == 1)
-        return controlPoints[0];
-
-    // Calcula o ponto anterior
-    size_t prevIndex = (currentPointIndex == 0) 
-        ? controlPoints.size() - 1 
-        : currentPointIndex - 1;
-
-    // Interpola entre o ponto anterior e o atual
-    return lerp(controlPoints[prevIndex], controlPoints[currentPointIndex], progress);
+    return computeCurrentPosition();
 }
 
-// Atualiza a posição do objeto (interpolação linear)
+// Atualiza a posição do objeto (linear OU bezier cubico, baseado em `interpolation`)
 void Trajectory::update(float deltaTime)
 {
-    if (!active || controlPoints.empty())
-        return;
+    if (!active) return;
 
-    // Calcula a distância entre os pontos
-    size_t prevIndex = (currentPointIndex == 0) 
-        ? controlPoints.size() - 1 
-        : currentPointIndex - 1;
+    if (interpolation == Interpolation::LINEAR) {
+        if (controlPoints.empty()) return;
 
-    float distance = glm::length(controlPoints[currentPointIndex] - controlPoints[prevIndex]);
+        // Calcula a distância entre os pontos
+        size_t prevIndex = (currentPointIndex == 0)
+            ? controlPoints.size() - 1
+            : currentPointIndex - 1;
 
-    // Evita divisão por zero
-    if (distance < 0.0001f)
-    {
-        advanceToNextPoint();
-        return;
-    }
+        float distance = glm::length(controlPoints[currentPointIndex] - controlPoints[prevIndex]);
 
-    // Calcula o tempo para percorrer a distância
-    float travelTime = distance / speed;
+        // Evita divisão por zero
+        if (distance < 0.0001f) {
+            advanceToNextPoint();
+            return;
+        }
 
-    // Atualiza o progresso
-    progress += deltaTime / travelTime;
+        // Calcula o tempo para percorrer a distância
+        float travelTime = distance / speed;
 
-    // Se completou o trecho, avança para o próximo ponto
-    if (progress >= 1.0f)
-    {
-        progress = 0.0f;
-        advanceToNextPoint();
+        // Atualiza o progresso
+        progress += deltaTime / travelTime;
+
+        // Se completou o trecho, avança para o próximo ponto
+        if (progress >= 1.0f) {
+            progress = 0.0f;
+            advanceToNextPoint();
+        }
+    } else {
+        // BEZIER cubico
+        if (bezierPoints.size() < 2) return;
+
+        // Numero de segmentos cubicos = ceil((N-1)/3), minimo 1
+        size_t numSegments = (bezierPoints.size() >= 4)
+            ? ((bezierPoints.size() - 1) / 3 + 1)
+            : 1;
+        if (numSegments < 1) numSegments = 1;
+
+        progress += deltaTime * speed * 0.2f;
+
+        if (progress >= 1.0f) {
+            progress = 0.0f;
+            currentSegment++;
+            if (currentSegment >= numSegments) {
+                currentSegment = 0;
+            }
+        }
     }
 }
 
@@ -250,4 +261,108 @@ glm::vec3 Trajectory::lerp(const glm::vec3& a, const glm::vec3& b, float t) cons
     // Clamp do t entre 0 e 1
     t = std::max(0.0f, std::min(1.0f, t));
     return a + t * (b - a);
+}
+
+// ============================================================================
+// Bezier cubico (adicionado em refactor/use-trajectory-class)
+// Cada segmento cubico usa 4 pontos de controle P0, P1, P2, P3.
+// O usuario pode digitar N pontos onde N = 3k + 1 -> k segmentos cubicos.
+// ============================================================================
+
+// === Configurar tipo de interpolacao ===
+void Trajectory::setInterpolation(Interpolation type) {
+    interpolation = type;
+    progress = 0.0f;
+}
+Trajectory::Interpolation Trajectory::getInterpolation() const {
+    return interpolation;
+}
+
+// === Gestao dos pontos bezier ===
+void Trajectory::addBezierPoint(const glm::vec3& point) {
+    bezierPoints.push_back(point);
+}
+bool Trajectory::removeBezierPoint(size_t index) {
+    if (index >= bezierPoints.size()) return false;
+    bezierPoints.erase(bezierPoints.begin() + index);
+    if (currentSegment > 0 && currentSegment * 3 >= bezierPoints.size()) currentSegment = 0;
+    return true;
+}
+void Trajectory::clearBezierPoints() {
+    bezierPoints.clear();
+    currentSegment = 0;
+    progress = 0.0f;
+}
+const std::vector<glm::vec3>& Trajectory::getBezierPoints() const {
+    return bezierPoints;
+}
+size_t Trajectory::getBezierPointCount() const {
+    return bezierPoints.size();
+}
+void Trajectory::setCurrentSegment(size_t seg) {
+    currentSegment = seg;
+}
+size_t Trajectory::getCurrentSegment() const {
+    return currentSegment;
+}
+
+// === De Casteljau sobre 4 pontos de controle ===
+glm::vec3 Trajectory::bezierCubic(const glm::vec3& p0, const glm::vec3& p1,
+                                  const glm::vec3& p2, const glm::vec3& p3, float t) {
+    // Metodo classico: reduz 4 -> 3 -> 2 -> 1 pontos por iteracao
+    glm::vec3 a = glm::mix(p0, p1, t);
+    glm::vec3 b = glm::mix(p1, p2, t);
+    glm::vec3 c = glm::mix(p2, p3, t);
+    glm::vec3 d = glm::mix(a, b, t);
+    glm::vec3 e = glm::mix(b, c, t);
+    return glm::mix(d, e, t);
+}
+
+// === Salva/carrega bezier ===
+bool Trajectory::saveBezierToFile(const std::string& filename) const {
+    std::ofstream file(filename);
+    if (!file.is_open()) return false;
+    file << bezierPoints.size() << "\n";
+    for (const auto& p : bezierPoints) {
+        file << p.x << " " << p.y << " " << p.z << "\n";
+    }
+    return true;
+}
+bool Trajectory::loadBezierFromFile(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) return false;
+    clearBezierPoints();
+    size_t n; file >> n;
+    for (size_t i = 0; i < n; ++i) {
+        float x, y, z; file >> x >> y >> z;
+        bezierPoints.push_back(glm::vec3(x, y, z));
+    }
+    return true;
+}
+
+// === Calculo da posicao baseado no tipo de interpolacao ===
+glm::vec3 Trajectory::computeCurrentPosition() const {
+    if (interpolation == Interpolation::LINEAR) {
+        if (controlPoints.empty()) return currentPosition;
+        if (controlPoints.size() == 1) return controlPoints[0];
+        size_t prevIndex = (currentPointIndex == 0)
+            ? controlPoints.size() - 1
+            : currentPointIndex - 1;
+        return lerp(controlPoints[prevIndex], controlPoints[currentPointIndex], progress);
+    }
+    // BEZIER cubico
+    if (bezierPoints.empty()) return currentPosition;
+    if (bezierPoints.size() < 2) return bezierPoints[0];
+
+    size_t baseIdx = currentSegment * 3;
+    if (baseIdx + 3 >= bezierPoints.size()) {
+        // Segmento incompleto — usa os 4 primeiros pontos (fallback)
+        baseIdx = 0;
+    }
+    return bezierCubic(
+        bezierPoints[baseIdx + 0],
+        bezierPoints[baseIdx + 1],
+        bezierPoints[baseIdx + 2],
+        bezierPoints[baseIdx + 3],
+        progress);
 }

@@ -83,16 +83,50 @@ public:
     // Retorna o índice do ponto atual
     size_t getCurrentIndex() const;
 
-private:
-    std::vector<glm::vec3> controlPoints;  // Lista de pontos de controle
-    size_t currentPointIndex;              // Índice do ponto atual
-    glm::vec3 currentPosition;             // Posição atual do objeto
-    float speed;                           // Velocidade de movimento
-    bool active;                           // Se a trajetória está ativa
-    float progress;                        // Progresso entre pontos (0.0 a 1.0)
+    // === Bezier cubico (adicionado em refactor/use-trajectory-class) ===
 
-    // Interpolação linear entre dois pontos
+    // Tipo de interpolacao
+    enum class Interpolation { LINEAR, BEZIER };
+
+    // Configura o tipo de interpolacao
+    void setInterpolation(Interpolation type);
+    Interpolation getInterpolation() const;
+
+    // Adiciona/remove/limpa pontos Bezier
+    void addBezierPoint(const glm::vec3& point);
+    bool removeBezierPoint(size_t index);
+    void clearBezierPoints();
+    const std::vector<glm::vec3>& getBezierPoints() const;
+    size_t getBezierPointCount() const;
+
+    // Segmento atual do Bezier (cada segmento usa 4 pontos)
+    void setCurrentSegment(size_t seg);
+    size_t getCurrentSegment() const;
+
+    // Salva/carrega pontos Bezier
+    bool saveBezierToFile(const std::string& filename) const;
+    bool loadBezierFromFile(const std::string& filename);
+
+    // Calcula posicao usando o algoritmo escolhido (linear ou bezier cubico)
+    glm::vec3 computeCurrentPosition() const;
+
+private:
+    std::vector<glm::vec3> controlPoints;       // Lista de pontos de controle (linear)
+    std::vector<glm::vec3> bezierPoints;        // Lista de pontos de controle (bezier)
+    size_t currentPointIndex;                   // (linear) Indice do ponto atual
+    size_t currentSegment;                      // (bezier) Segmento cubico atual
+    glm::vec3 currentPosition;                  // Posicao atual do objeto
+    float speed;                                // Velocidade de movimento
+    bool active;                                // Se a trajetoria esta ativa
+    float progress;                             // Progresso entre pontos (0.0 a 1.0)
+    Interpolation interpolation;                // Tipo de interpolacao
+
+    // Interpolacao linear entre dois pontos
     glm::vec3 lerp(const glm::vec3& a, const glm::vec3& b, float t) const;
+
+    // Algoritmo de De Casteljau para Bezier cubico sobre 4 pontos de controle
+    static glm::vec3 bezierCubic(const glm::vec3& p0, const glm::vec3& p1,
+                                 const glm::vec3& p2, const glm::vec3& p3, float t);
 };
 
 #endif // TRAJECTORY_H
