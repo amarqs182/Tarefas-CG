@@ -135,6 +135,8 @@ int objeto_trajetoria_selecionado = 0;
 
 int Num_vertices_esfera = 0;
 
+bool cursorLivre = false;
+
 // -----------------------------
 // Callbacks
 // -----------------------------
@@ -146,6 +148,8 @@ void redimensionaCallback(GLFWwindow *window, int w, int h) {
 }
 
 void mouse_callback(GLFWwindow *window, double xpos, double ypos) {
+    if (cursorLivre) return;
+
     static float lastX = WIDTH / 2.0f;
     static float lastY = HEIGHT / 2.0f;
     static bool firstMouse = true;
@@ -166,6 +170,7 @@ void mouse_callback(GLFWwindow *window, double xpos, double ypos) {
 }
 
 void scroll_callback(GLFWwindow *window, double xoffset, double yoffset) {
+    if (cursorLivre) return;
     camera.processMouseScroll((float)yoffset);
 }
 
@@ -173,16 +178,27 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 
-    if (action == GLFW_PRESS || action == GLFW_REPEAT) {
-        if (key == GLFW_KEY_W) camera.processKeyboard(Camera::FORWARD, Tempo_entre_frames);
-        if (key == GLFW_KEY_S) camera.processKeyboard(Camera::BACKWARD, Tempo_entre_frames);
-        if (key == GLFW_KEY_A) camera.processKeyboard(Camera::LEFT, Tempo_entre_frames);
-        if (key == GLFW_KEY_D) camera.processKeyboard(Camera::RIGHT_DIR, Tempo_entre_frames);
-        if (key == GLFW_KEY_Q) camera.processKeyboard(Camera::DOWN, Tempo_entre_frames);
-        if (key == GLFW_KEY_E) camera.processKeyboard(Camera::UP, Tempo_entre_frames);
+    if (key == GLFW_KEY_GRAVE_ACCENT && action == GLFW_PRESS) {
+        cursorLivre = !cursorLivre;
+        if (cursorLivre) {
+            glfwSetInputMode(Window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        } else {
+            glfwSetInputMode(Window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        }
     }
 
-    if (action == GLFW_PRESS && !renderObjects.empty()) {
+    if (action == GLFW_PRESS || action == GLFW_REPEAT) {
+        if (!cursorLivre) {
+            if (key == GLFW_KEY_W) camera.processKeyboard(Camera::FORWARD, Tempo_entre_frames);
+            if (key == GLFW_KEY_S) camera.processKeyboard(Camera::BACKWARD, Tempo_entre_frames);
+            if (key == GLFW_KEY_A) camera.processKeyboard(Camera::LEFT, Tempo_entre_frames);
+            if (key == GLFW_KEY_D) camera.processKeyboard(Camera::RIGHT_DIR, Tempo_entre_frames);
+            if (key == GLFW_KEY_Q) camera.processKeyboard(Camera::DOWN, Tempo_entre_frames);
+            if (key == GLFW_KEY_E) camera.processKeyboard(Camera::UP, Tempo_entre_frames);
+        }
+    }
+
+    if (action == GLFW_PRESS && !renderObjects.empty() && !cursorLivre) {
         RenderObject& obj = renderObjects[objeto_selecionado];
 
         if (key == GLFW_KEY_TAB) {
